@@ -221,9 +221,9 @@ gateway recebe → responde publicando uma leitura `evento:"resposta"` → dashb
 3. Deploy da `cloud-api` (Render/Railway/AWS Lightsail) com banco persistente.
 4. Cadastro do **corpo de prova** (lote, idade, dimensões) e cálculo conforme **NBR 7680‑1 / ASTM C39**.
 5. Múltiplas prensas e relatórios.
-6. **Integração futura com o TopconCRM** (API existente em `https://35-168-164-226.nip.io`): a
-   `cloud-api` pode encaminhar o resultado de ruptura para um endpoint do CRM, associando ao
-   cliente/obra — mantendo este serviço como coletor dedicado e o CRM como destino de negócio.
+6. **Integração futura com um ERP/CRM**: a `cloud-api` pode encaminhar o resultado de ruptura
+   para um endpoint do sistema de gestão (configurável por variável de ambiente), associando ao
+   cliente/obra — mantendo este serviço como coletor dedicado e o ERP/CRM como destino de negócio.
 
 ---
 
