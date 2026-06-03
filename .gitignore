@@ -1,0 +1,27 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# dados do PoC
+*.sqlite
+*.sqlite-*
+cloud-api/data.sqlite*
+
+# segredos do firmware (copie config.example.h -> config.h)
+gateway-esp32/include/config.h
+gateway-esp32/.pio/
+
+# capturas seriais
+serial-discovery/*.log
+serial-discovery/curva.csv
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS
+.DS_Store
+
+# config local de preview
+.claude/

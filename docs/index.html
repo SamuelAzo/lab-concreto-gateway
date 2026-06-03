@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#0f172a" />
+<title>Lab Concreto — Ruptura ao vivo</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧱</text></svg>" />
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0f172a; --card:#1e293b; --card2:#334155; --ink:#e2e8f0; --muted:#94a3b8;
+    --accent:#38bdf8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --line:#475569;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.45}
+  header{padding:14px 16px;background:linear-gradient(135deg,#1e3a5f,#0f172a);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+  header h1{margin:0;font-size:18px;display:flex;align-items:center;gap:8px}
+  header .sub{font-size:12px;color:var(--muted);margin-top:2px}
+  .wrap{max-width:760px;margin:0 auto;padding:16px;display:flex;flex-direction:column;gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .status{display:flex;align-items:center;gap:8px;font-size:13px}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 0 rgba(56,189,248,.6)}
+  .dot.on{background:var(--ok);animation:pulse 2s infinite}
+  .dot.err{background:var(--bad)}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+  .btns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  button{font-size:15px;font-weight:600;border:none;border-radius:12px;padding:14px;color:#04121f;cursor:pointer;transition:transform .05s,filter .15s}
+  button:active{transform:scale(.97)}
+  button.primary{background:var(--accent)}
+  button.ghost{background:var(--card2);color:var(--ink);border:1px solid var(--line)}
+  button:disabled{filter:grayscale(.6) brightness(.7);cursor:not-allowed}
+  .big{display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:center}
+  .big .v{font-size:30px;font-weight:800;letter-spacing:-.5px}
+  .big .v small{font-size:14px;color:var(--muted);font-weight:600}
+  .big .l{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:2px}
+  .live .v{color:var(--accent)}
+  .peak .v{color:var(--ok)}
+  canvas{width:100%!important;height:200px!important}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--card2)}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .tag{font-size:11px;padding:2px 8px;border-radius:99px;background:var(--card2);color:var(--muted)}
+  .tag.rup{background:rgba(34,197,94,.15);color:var(--ok)}
+  .muted{color:var(--muted);font-size:12px}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+  details{font-size:13px;color:var(--muted)}
+  summary{cursor:pointer;padding:4px 0}
+  code{background:var(--card2);padding:1px 6px;border-radius:6px;font-size:12px}
+  a{color:var(--accent)}
+  .empty{text-align:center;color:var(--muted);padding:18px;font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap" style="padding-top:0;padding-bottom:0;gap:2px">
+    <h1>🧱 Lab Concreto — Ruptura ao vivo</h1>
+    <div class="sub">Prensa de corpo de prova → MQTT → este painel · PoC</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="card">
+    <div class="row">
+      <div class="status"><span id="dot" class="dot"></span><span id="conn">Conectando ao broker…</span></div>
+      <span class="muted" id="sala"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="big">
+      <div class="live"><div class="v"><span id="liveLoad">—</span><small> kN</small></div><div class="l">Carga atual</div></div>
+      <div class="peak"><div class="v"><span id="peakLoad">—</span><small> kN</small></div><div class="l">Pico (ruptura)</div></div>
+    </div>
+    <div class="big" style="margin-top:10px">
+      <div><div class="v" style="font-size:22px"><span id="liveMpa">—</span><small> MPa</small></div><div class="l">Tensão atual</div></div>
+      <div><div class="v" style="font-size:22px;color:var(--warn)"><span id="fck">—</span><small> MPa</small></div><div class="l">fck estimado</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="btns">
+    <button class="primary" id="btnSim">▶︎ Simular ensaio</button>
+    <button class="ghost" id="btnRead">📡 Pedir leitura (READ?)</button>
+  </div>
+  <div class="muted" id="hint">Toque em <b>Simular ensaio</b> — abra esta mesma URL em outro celular para ver chegar ao vivo nos dois.</div>
+
+  <div class="card">
+    <div class="row" style="margin-bottom:6px">
+      <b>Ensaios recebidos</b>
+      <span class="muted" id="count">0</span>
+    </div>
+    <table>
+      <thead><tr><th>Hora</th><th>Dispositivo</th><th>CP</th><th class="num">Pico kN</th><th class="num">MPa</th><th></th></tr></thead>
+      <tbody id="rows"><tr><td colspan="6" class="empty">Nenhum ensaio ainda.</td></tr></tbody>
+    </table>
+  </div>
+
+  <details class="card">
+    <summary>Como funciona / para os técnicos</summary>
+    <p>Este painel conecta por <b>MQTT sobre WebSocket Seguro</b> ao broker público
+    <code>wss://broker.hivemq.com:8884/mqtt</code>. Os tópicos usam o prefixo desta sala:
+    <code id="prefix"></code>.</p>
+    <ul>
+      <li><b>Simular ensaio</b>: publica uma curva de ruptura em <code>readings/&lt;device&gt;</code> — exatamente o que o gateway ESP32 fará lendo a prensa.</li>
+      <li><b>Pedir leitura</b>: publica <code>READ?</code> em <code>commands/&lt;device&gt;</code>; o dispositivo (aqui simulado por esta aba) responde com uma leitura — prova o fluxo <b>nuvem→gateway</b>.</li>
+      <li>Troque de sala adicionando <code>?sala=meulab</code> na URL para isolar seu tráfego.</li>
+    </ul>
+    <p>Repositório e estudo técnico: <a href="https://github.com/SamuelAzo/lab-concreto-gateway" target="_blank">github.com/SamuelAzo/lab-concreto-gateway</a></p>
+  </details>
+
+  <div class="muted" style="text-align:center;padding-bottom:24px">PoC · sem autenticação (broker público) · não usar com dado sensível</div>
+</div>
+
+<script>
+// ---------- shared protocol (mesmo contrato do simulator.js e do firmware ESP32) ----------
+const params = new URLSearchParams(location.search);
+const SALA = (params.get('sala') || 'topcon-demo').replace(/[^a-z0-9_-]/gi,'').slice(0,32) || 'topcon-demo';
+const PREFIX = `labconc/${SALA}`;
+const BROKER = 'wss://broker.hivemq.com:8884/mqtt';
+const THIS_DEVICE = 'web-' + Math.random().toString(36).slice(2,7);
+
+document.getElementById('sala').textContent = 'sala: ' + SALA;
+document.getElementById('prefix').textContent = PREFIX;
+
+// corpo de prova padrão NBR: cilindro 10x20 cm
+const DIAM_MM = 100;
+const AREA_MM2 = Math.PI * (DIAM_MM/2)**2;       // ~7854 mm²
+const mpaFromKN = (kN) => (kN*1000)/AREA_MM2;     // N/mm² = MPa
+
+// ---------- estado / UI ----------
+const $ = id => document.getElementById(id);
+let ensaios = [];                  // ensaios finalizados (com pico)
+let lastReading = null;            // última leitura vista (p/ responder READ?)
+const chartData = { labels:[], load:[] };
+
+const chart = new Chart($('chart'), {
+  type:'line',
+  data:{ labels:chartData.labels, datasets:[{
+    label:'Carga (kN)', data:chartData.load, borderColor:'#38bdf8',
+    backgroundColor:'rgba(56,189,248,.15)', fill:true, tension:.25,
+    pointRadius:0, borderWidth:2 }]},
+  options:{ responsive:true, maintainAspectRatio:false, animation:false,
+    scales:{ x:{ ticks:{color:'#64748b',maxTicksLimit:6}, grid:{color:'#1e293b'} },
+             y:{ ticks:{color:'#64748b'}, grid:{color:'#1e293b'}, beginAtZero:true } },
+    plugins:{ legend:{display:false} } }
+});
+
+function setLive(kN, mpa){
+  $('liveLoad').textContent = kN.toFixed(1);
+  $('liveMpa').textContent = mpa.toFixed(1);
+}
+function pushPoint(t_s, kN){
+  chartData.labels.push(t_s.toFixed(1)+'s');
+  chartData.load.push(+kN.toFixed(1));
+  if(chartData.labels.length>120){ chartData.labels.shift(); chartData.load.shift(); }
+  chart.update('none');
+}
+function resetChart(){ chartData.labels.length=0; chartData.load.length=0; chart.update('none'); }
+
+function addEnsaio(e){
+  ensaios.unshift(e);
+  if(ensaios.length>50) ensaios.pop();
+  $('count').textContent = ensaios.length;
+  $('peakLoad').textContent = e.pico_kN.toFixed(1);
+  $('fck').textContent = e.mpa.toFixed(1);
+  const body = $('rows');
+  body.innerHTML = ensaios.map(x=>`<tr>
+    <td>${x.hora}</td><td>${x.device}</td><td>Ø${x.diam_mm}mm</td>
+    <td class="num">${x.pico_kN.toFixed(1)}</td><td class="num">${x.mpa.toFixed(1)}</td>
+    <td><span class="tag rup">ruptura</span></td></tr>`).join('');
+}
+
+// ---------- MQTT ----------
+const client = mqtt.connect(BROKER, { clientId:'labconc_'+THIS_DEVICE, keepalive:30, reconnectPeriod:2000, clean:true });
+
+client.on('connect', ()=>{
+  $('dot').className='dot on'; $('conn').textContent='Conectado ao broker (ao vivo)';
+  client.subscribe(`${PREFIX}/readings/+`);
+  client.subscribe(`${PREFIX}/commands/+`);
+});
+client.on('reconnect', ()=>{ $('dot').className='dot'; $('conn').textContent='Reconectando…'; });
+client.on('error', e=>{ $('dot').className='dot err'; $('conn').textContent='Erro: '+e.message; });
+client.on('close', ()=>{ $('dot').className='dot err'; $('conn').textContent='Desconectado'; });
+
+client.on('message', (topic, payload)=>{
+  let msg; try{ msg = JSON.parse(payload.toString()); }catch(_){ return; }
+  if(topic.includes('/readings/')) onReading(msg);
+  else if(topic.includes('/commands/')) onCommand(msg);
+});
+
+function onReading(r){
+  lastReading = r;
+  if(r.evento==='inicio'){ resetChart(); setLive(0,0); }
+  if(typeof r.carga_kN==='number'){
+    setLive(r.carga_kN, r.tensao_MPa ?? mpaFromKN(r.carga_kN));
+    pushPoint((r.t_ms||0)/1000, r.carga_kN);
+  }
+  if(r.evento==='ruptura'){
+    addEnsaio({
+      hora:new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}),
+      device:r.device||'?', diam_mm:r.diam_mm||DIAM_MM,
+      pico_kN:r.carga_kN, mpa:r.tensao_MPa ?? mpaFromKN(r.carga_kN)
+    });
+  }
+}
+
+function onCommand(c){
+  // este aparelho age como "dispositivo virtual": responde a READ? com a última leitura
+  if(c && c.cmd==='READ?'){
+    const r = lastReading || { device:'web-virtual', carga_kN: 0, tensao_MPa: 0, t_ms:0, evento:'resposta' };
+    publishReading({ ...r, device:(r.device||'web-virtual'), evento:'resposta' });
+  }
+}
+
+function publishReading(r){ client.publish(`${PREFIX}/readings/${r.device}`, JSON.stringify(r)); }
+function publishCommand(device, cmd){ client.publish(`${PREFIX}/commands/${device}`, JSON.stringify({cmd, ts:Date.now()})); }
+
+// ---------- simulação de ensaio (mesma curva do simulator.js) ----------
+let simRunning = false;
+async function simularEnsaio(){
+  if(simRunning || !client.connected) return;
+  simRunning = true; $('btnSim').disabled=true; $('btnSim').textContent='● Ensaiando…';
+  const device = 'sim-' + THIS_DEVICE;
+  const fck = 20 + Math.random()*25;                 // 20–45 MPa alvo
+  const picoKN = (fck*AREA_MM2)/1000 * (0.95+Math.random()*0.12); // ruído ±
+  const T = 5.0;                                      // duração comprimida (s) p/ demo
+  const dt = 0.15;                                    // 150 ms
+
+  publishReading({ device, evento:'inicio', diam_mm:DIAM_MM, t_ms:0, carga_kN:0, tensao_MPa:0 });
+  let t=0;
+  while(t < T){
+    // rampa levemente não-linear até o pico
+    const frac = t/T;
+    const kN = picoKN * Math.pow(frac, 1.15) * (1 + (Math.random()-0.5)*0.02);
+    publishReading({ device, evento:'streaming', diam_mm:DIAM_MM, t_ms:Math.round(t*1000),
+                     carga_kN:+kN.toFixed(2), tensao_MPa:+mpaFromKN(kN).toFixed(2) });
+    await sleep(dt*1000);
+    t += dt;
+  }
+  // ruptura no pico
+  publishReading({ device, evento:'ruptura', diam_mm:DIAM_MM, t_ms:Math.round(T*1000),
+                   carga_kN:+picoKN.toFixed(2), tensao_MPa:+mpaFromKN(picoKN).toFixed(2) });
+  // pós-ruptura (queda)
+  for(const f of [0.4,0.15,0.05]){
+    await sleep(120);
+    publishReading({ device, evento:'streaming', diam_mm:DIAM_MM, t_ms:Math.round(T*1000)+200,
+                     carga_kN:+(picoKN*f).toFixed(2), tensao_MPa:+mpaFromKN(picoKN*f).toFixed(2) });
+  }
+  simRunning=false; $('btnSim').disabled=false; $('btnSim').textContent='▶︎ Simular ensaio';
+}
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+$('btnSim').onclick = simularEnsaio;
+$('btnRead').onclick = ()=>{
+  // pede leitura a todos os dispositivos da sala (broadcast simples)
+  const target = (lastReading && lastReading.device) || ('sim-'+THIS_DEVICE);
+  publishCommand(target, 'READ?');
+  $('btnRead').textContent='📡 Enviado!'; setTimeout(()=>$('btnRead').textContent='📡 Pedir leitura (READ?)',1200);
+};
+</script>
+</body>
+</html>

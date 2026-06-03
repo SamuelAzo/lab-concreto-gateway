@@ -1,0 +1,24 @@
+# Sobe o broker MQTT local (Mosquitto) + a cloud-api, para rodar o PoC 100% local
+# sem depender do broker publico.
+#   docker compose up -d
+#   # depois rode o simulador apontando para o broker local:
+#   MQTT_URL=mqtt://localhost:1883 node gateway-simulator/simulator.js --device prensa01
+services:
+  broker:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"   # MQTT TCP
+      - "9001:9001"   # MQTT sobre WebSocket
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+
+  cloud-api:
+    build: ./cloud-api
+    environment:
+      - MQTT_URL=mqtt://broker:1883
+      - TOPIC_PREFIX=labconc/topcon-demo
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - broker

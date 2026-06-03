@@ -1,0 +1,9 @@
+{
+  "name": "lab-concreto-gateway-simulator",
+  "version": "0.1.0",
+  "description": "Simulador do gateway ESP32: publica curva de ruptura por MQTT (mesmo contrato do firmware).",
+  "type": "module",
+  "bin": { "lab-sim": "simulator.js" },
+  "scripts": { "start": "node simulator.js" },
+  "dependencies": { "mqtt": "^5.10.1" }
+}

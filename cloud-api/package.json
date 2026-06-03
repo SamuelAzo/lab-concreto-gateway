@@ -1,0 +1,15 @@
+{
+  "name": "lab-concreto-cloud-api",
+  "version": "0.1.0",
+  "description": "App dedicado (PoC) que ingere leituras de ruptura de prensa de concreto via MQTT e expoe REST + dashboard.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "express": "^4.21.0",
+    "mqtt": "^5.10.1"
+  }
+}
