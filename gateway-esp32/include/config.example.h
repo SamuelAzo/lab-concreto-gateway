@@ -30,3 +30,11 @@
 // (pico * RUPTURA_QUEDA), considera-se rompido e publica o pico.
 #define RUPTURA_MIN_KN  5.0
 #define RUPTURA_QUEDA   0.80
+
+// ---------- Modo de teste de bancada ----------
+// Com TEST_MODE em 1, o ESP32 gera ensaios SIMULADOS sozinho (sem precisar da
+// prensa nem do MAX3232 ligado), a cada TEST_INTERVALO_S segundos. Serve para
+// validar WiFi + MQTT: os ensaios aparecem no dashboard do celular.
+// Quando for ligar na prensa de verdade, troque TEST_MODE para 0.
+#define TEST_MODE        1
+#define TEST_INTERVALO_S 15

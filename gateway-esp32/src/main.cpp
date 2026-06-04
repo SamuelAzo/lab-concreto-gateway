@@ -33,6 +33,10 @@ double ultimaCargaKN = 0.0;
 const double AREA_MM2 = PI * (DIAM_MM / 2.0) * (DIAM_MM / 2.0);
 inline double mpaFromKN(double kN) { return (kN * 1000.0) / AREA_MM2; }
 
+// forward declarations (funcoes usadas antes de definidas)
+void publishReading(const char* evento, double kN, unsigned long t_ms);
+void publishRuptura(double kN, bool reenvio);
+
 // ---------- buffer offline simples (NVS) ----------
 // Guarda apenas o ULTIMO resultado de ruptura nao enviado; ao reconectar, reenvia.
 void salvarPendente(double kN) {
@@ -141,6 +145,25 @@ void conectarMQTT() {
   }
 }
 
+#if TEST_MODE
+// Gera um ensaio de ruptura simulado no proprio ESP32 (sem prensa).
+void simularEnsaioTeste() {
+  t0 = millis();
+  double fck = 20.0 + (esp_random() % 2500) / 100.0;   // 20-45 MPa
+  double picoKN = (fck * AREA_MM2) / 1000.0;
+  const int T = 5000, dt = 150;
+  Serial.printf("[gw][TESTE] ensaio simulado (~%.1f MPa, pico ~%.0f kN)\n", fck, picoKN);
+  publishReading("inicio", 0, 0);
+  for (int t = 0; t <= T; t += dt) {
+    double kN = picoKN * pow((double)t / T, 1.15);
+    publishReading("streaming", kN, t);
+    mqtt.loop();
+    delay(dt);
+  }
+  publishRuptura(picoKN, false);
+}
+#endif
+
 void setup() {
   Serial.begin(115200);
   Serial2.begin(PRENSA_BAUD, SERIAL_8N1, PRENSA_RX_PIN, PRENSA_TX_PIN);
@@ -162,6 +185,15 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED) conectarWiFi();
   if (!mqtt.connected()) conectarMQTT();
   mqtt.loop();
+
+#if TEST_MODE
+  // modo bancada: dispara um ensaio simulado periodicamente (sem prensa)
+  static unsigned long ultimoTeste = 0;
+  if (millis() - ultimoTeste > (unsigned long)TEST_INTERVALO_S * 1000UL) {
+    ultimoTeste = millis();
+    simularEnsaioTeste();
+  }
+#endif
 
   // le linhas da prensa terminadas por CR ou LF
   static String linha;
