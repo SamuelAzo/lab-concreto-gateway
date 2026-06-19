@@ -24,7 +24,7 @@
   <div class="card"><canvas id="chart"></canvas><div class="muted" id="lbl">Aguardando ensaio…</div></div>
   <div class="card">
     <b>Ensaios persistidos</b>
-    <table><thead><tr><th>ID</th><th>Início</th><th>Device</th><th class="num">Pico kN</th><th class="num">MPa</th><th>Status</th></tr></thead>
+    <table><thead><tr><th>ID</th><th>Início</th><th>Device</th><th>CP</th><th class="num">Pico kN</th><th class="num">MPa</th><th>Status</th></tr></thead>
     <tbody id="rows"></tbody></table>
   </div>
   <div class="muted">REST: <code>GET /api/ensaios</code> · <code>GET /api/ensaios/:id</code> · <code>POST /api/dispositivos/:id/comando</code></div>
@@ -38,9 +38,9 @@ const chart = new Chart(document.getElementById('chart'), {
 async function refresh(){
   const ensaios = await (await fetch('/api/ensaios')).json();
   document.getElementById('rows').innerHTML = ensaios.map(e=>`<tr>
-    <td>${e.id}</td><td>${e.started_at?.slice(11)||''}</td><td>${e.device}</td>
+    <td>${e.id}</td><td>${e.started_at?.slice(11)||''}</td><td>${e.device}</td><td>${e.corpo_de_prova||'—'}</td>
     <td class="num">${e.pico_kN?.toFixed(1)??'—'}</td><td class="num">${e.tensao_MPa?.toFixed(1)??'—'}</td>
-    <td>${e.status}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Nenhum ensaio.</td></tr>';
+    <td>${e.status}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">Nenhum ensaio.</td></tr>';
   if(ensaios[0]){
     const e = await (await fetch('/api/ensaios/'+ensaios[0].id)).json();
     const pts = (e.leituras||[]).filter(l=>typeof l.carga_kN==='number');

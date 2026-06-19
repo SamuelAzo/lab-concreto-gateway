@@ -38,3 +38,16 @@
 // Quando for ligar na prensa de verdade, troque TEST_MODE para 0.
 #define TEST_MODE        1
 #define TEST_INTERVALO_S 15
+
+// ---------- Leitor de codigo de barras Bluetooth (opcional) ----------
+// Vincula cada ruptura ao corpo de prova (CP) lido por um leitor Bluetooth.
+// REQUISITO: o leitor PRECISA estar em modo SPP (Serial Port Profile / "serial"),
+// NAO em modo HID/teclado. (Troca-se o modo lendo um codigo de config no manual do leitor.)
+// ATENCAO: WiFi + Bluetooth Classico juntos sao pesados -> use particao huge_app
+// (ja configurada no platformio.ini) e valide a estabilidade.
+// Deixe 0 para nao mexer no gateway atual; ligue (1) quando tiver o leitor SPP.
+#define BARCODE_BT       0
+#define BT_NAME          "LabConcreto-GW"        // nome local do ESP32 (master SPP)
+#define CP_TIMEOUT_S     300                     // CP lido expira em N s se nao romper
+// MAC do leitor (descubra com o firmware bt-discover/). O ESP32 e MASTER e conecta nele.
+#define SCANNER_MAC      {0xdc,0x0d,0x30,0xac,0x7a,0x3b}   // "NT barcode scanner"

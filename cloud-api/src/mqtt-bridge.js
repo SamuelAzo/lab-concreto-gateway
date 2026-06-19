@@ -37,7 +37,7 @@ function handleReading(r) {
   const device = r.device || 'desconhecido';
 
   if (r.evento === 'inicio') {
-    const id = novoEnsaio(device, r.diam_mm || 100);
+    const id = novoEnsaio(device, r.diam_mm || 100, r.corpo_de_prova);
     emAndamento.set(device, id);
     addLeitura(id, r);
     return notify();
@@ -46,7 +46,7 @@ function handleReading(r) {
   let ensaioId = emAndamento.get(device);
   if (!ensaioId && r.evento !== 'resposta') {
     // leitura sem 'inicio' previo (ex.: stream ja em curso) -> abre ensaio
-    ensaioId = novoEnsaio(device, r.diam_mm || 100);
+    ensaioId = novoEnsaio(device, r.diam_mm || 100, r.corpo_de_prova);
     emAndamento.set(device, ensaioId);
   }
   if (!ensaioId) return; // 'resposta' avulsa a READ? sem ensaio aberto
@@ -54,7 +54,7 @@ function handleReading(r) {
   addLeitura(ensaioId, r);
 
   if (r.evento === 'ruptura') {
-    finalizarEnsaio(ensaioId, r.carga_kN, r.tensao_MPa);
+    finalizarEnsaio(ensaioId, r.carga_kN, r.tensao_MPa, r.corpo_de_prova);
     emAndamento.delete(device);
   }
   notify();

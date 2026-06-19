@@ -16,6 +16,22 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include "config.h"   // copie de config.example.h
+// defaults seguros caso o config.h seja antigo (sem o bloco do leitor)
+#ifndef BARCODE_BT
+#define BARCODE_BT 0
+#endif
+#ifndef BT_NAME
+#define BT_NAME "LabConcreto-Scanner"
+#endif
+#ifndef CP_TIMEOUT_S
+#define CP_TIMEOUT_S 300
+#endif
+#ifndef SCANNER_MAC
+#define SCANNER_MAC {0xdc,0x0d,0x30,0xac,0x7a,0x3b}   // "NT barcode scanner" (descoberto)
+#endif
+#if BARCODE_BT
+#include "BluetoothSerial.h"   // leitor de codigo de barras via Bluetooth SPP
+#endif
 
 WiFiClient net;
 PubSubClient mqtt(net);
@@ -29,6 +45,22 @@ double picoKN = 0.0;
 bool emEnsaio = false;
 unsigned long t0 = 0;
 double ultimaCargaKN = 0.0;
+
+#if BARCODE_BT
+BluetoothSerial SerialBT;
+String cpAtual = "";          // codigo do corpo de prova lido
+unsigned long cpTs = 0;       // quando foi lido (p/ expirar)
+uint8_t scannerMac[6] = SCANNER_MAC;
+unsigned long ultTentLeitor = 0;
+inline bool cpValido() { return cpAtual.length() && (millis() - cpTs) < (unsigned long)CP_TIMEOUT_S * 1000UL; }
+// ESP32 e o MESTRE SPP: conecta no leitor (que fica como escravo) pelo MAC.
+void conectarLeitor() {
+  if (SerialBT.connected()) return;
+  Serial.println("[gw] conectando ao leitor (SPP master)...");
+  bool ok = SerialBT.connect(scannerMac);
+  Serial.printf("[gw] leitor SPP: %s\n", ok ? "CONECTADO" : "falhou (retry em 8s)");
+}
+#endif
 
 const double AREA_MM2 = PI * (DIAM_MM / 2.0) * (DIAM_MM / 2.0);
 inline double mpaFromKN(double kN) { return (kN * 1000.0) / AREA_MM2; }
@@ -64,7 +96,10 @@ void publishReading(const char* evento, double kN, unsigned long t_ms) {
   doc["t_ms"] = t_ms;
   doc["carga_kN"] = round(kN * 100) / 100.0;
   doc["tensao_MPa"] = round(mpaFromKN(kN) * 100) / 100.0;
-  char buf[200];
+#if BARCODE_BT
+  if (cpValido()) doc["corpo_de_prova"] = cpAtual;   // vincula o CP lido por Bluetooth
+#endif
+  char buf[256];
   size_t n = serializeJson(doc, buf);
   ultimaCargaKN = kN;
   mqtt.publish(topReadings.c_str(), buf, n);
@@ -167,6 +202,11 @@ void simularEnsaioTeste() {
 void setup() {
   Serial.begin(115200);
   Serial2.begin(PRENSA_BAUD, SERIAL_8N1, PRENSA_RX_PIN, PRENSA_TX_PIN);
+#if BARCODE_BT
+  SerialBT.begin(BT_NAME, true);   // true = MASTER (o leitor SPP fica como escravo)
+  Serial.printf("[gw] Bluetooth SPP master \"%s\" ON\n", BT_NAME);
+  conectarLeitor();
+#endif
 
   snprintf(clientId, sizeof(clientId), "gw-%s-%04X", DEVICE_ID, (uint16_t)(ESP.getEfuseMac() & 0xFFFF));
   String base = String("labconc/") + MQTT_SALA;
@@ -192,6 +232,22 @@ void loop() {
   if (millis() - ultimoTeste > (unsigned long)TEST_INTERVALO_S * 1000UL) {
     ultimoTeste = millis();
     simularEnsaioTeste();
+  }
+#endif
+
+#if BARCODE_BT
+  // reconecta no leitor se cair
+  if (!SerialBT.connected() && millis() - ultTentLeitor > 8000) { ultTentLeitor = millis(); conectarLeitor(); }
+  // leitor de codigo de barras (Bluetooth SPP) -> cpAtual
+  static String bcode;
+  while (SerialBT.available()) {
+    char c = SerialBT.read();
+    if (c == '\r' || c == '\n') {
+      if (bcode.length()) { cpAtual = bcode; cpTs = millis(); bcode = "";
+        Serial.printf("[gw] CP lido: %s\n", cpAtual.c_str()); }
+    } else if (bcode.length() < 64 && c >= 32) {
+      bcode += c;
+    }
   }
 #endif
 
