@@ -51,3 +51,8 @@
 #define CP_TIMEOUT_S     300                     // CP lido expira em N s se nao romper
 // MAC do leitor (descubra com o firmware bt-discover/). O ESP32 e MASTER e conecta nele.
 #define SCANNER_MAC      {0xdc,0x0d,0x30,0xac,0x7a,0x3b}   // "NT barcode scanner"
+
+// ALTERNATIVA: receber o CP de um APP do celular (camera) via BLE, sem leitor dedicado.
+// Ligue APENAS UM: BARCODE_BT (leitor SPP) OU BARCODE_BLE (app). Nunca os dois.
+// No modo BLE o app escreve o codigo na caracteristica a1b2c3d4-0003-... do servico a1b2c3d4-0001-...
+#define BARCODE_BLE      0

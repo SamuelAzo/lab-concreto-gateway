@@ -29,8 +29,19 @@
 #ifndef SCANNER_MAC
 #define SCANNER_MAC {0xdc,0x0d,0x30,0xac,0x7a,0x3b}   // "NT barcode scanner" (descoberto)
 #endif
+#ifndef BARCODE_BLE
+#define BARCODE_BLE 0          // 1 = recebe o CP de um app do celular via BLE
+#endif
+#if BARCODE_BT && BARCODE_BLE
+#error "Escolha apenas UM: BARCODE_BT (leitor SPP) OU BARCODE_BLE (app via BLE)."
+#endif
 #if BARCODE_BT
-#include "BluetoothSerial.h"   // leitor de codigo de barras via Bluetooth SPP
+#include "BluetoothSerial.h"   // leitor de codigo de barras dedicado via Bluetooth SPP
+#endif
+#if BARCODE_BLE
+#include <BLEDevice.h>         // BLE peripheral: recebe o CP do app (camera do celular)
+#include <BLEServer.h>
+#include <BLEUtils.h>
 #endif
 
 WiFiClient net;
@@ -46,19 +57,48 @@ bool emEnsaio = false;
 unsigned long t0 = 0;
 double ultimaCargaKN = 0.0;
 
+// estado do corpo de prova (compartilhado por SPP e BLE)
+#if BARCODE_BT || BARCODE_BLE
+String cpAtual = "";          // codigo do CP (lido por SPP ou recebido por BLE)
+unsigned long cpTs = 0;       // quando foi lido (p/ expirar)
+inline bool cpValido() { return cpAtual.length() && (millis() - cpTs) < (unsigned long)CP_TIMEOUT_S * 1000UL; }
+#endif
+
 #if BARCODE_BT
 BluetoothSerial SerialBT;
-String cpAtual = "";          // codigo do corpo de prova lido
-unsigned long cpTs = 0;       // quando foi lido (p/ expirar)
 uint8_t scannerMac[6] = SCANNER_MAC;
 unsigned long ultTentLeitor = 0;
-inline bool cpValido() { return cpAtual.length() && (millis() - cpTs) < (unsigned long)CP_TIMEOUT_S * 1000UL; }
 // ESP32 e o MESTRE SPP: conecta no leitor (que fica como escravo) pelo MAC.
 void conectarLeitor() {
   if (SerialBT.connected()) return;
   Serial.println("[gw] conectando ao leitor (SPP master)...");
   bool ok = SerialBT.connect(scannerMac);
   Serial.printf("[gw] leitor SPP: %s\n", ok ? "CONECTADO" : "falhou (retry em 8s)");
+}
+#endif
+
+#if BARCODE_BLE
+#define BLE_SVC_UUID  "a1b2c3d4-0001-1000-8000-00805f9b34fb"
+#define BLE_CP_UUID   "a1b2c3d4-0003-1000-8000-00805f9b34fb"   // app ESCREVE o codigo aqui
+class BarcodeCb : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic* c) override {
+    String v = String(c->getValue().c_str()); v.trim();
+    if (v.length()) { cpAtual = v; cpTs = millis(); Serial.printf("[gw] CP via BLE: %s\n", cpAtual.c_str()); }
+  }
+};
+void setupBLE() {
+  BLEDevice::init(BT_NAME);
+  BLEServer* srv = BLEDevice::createServer();
+  BLEService* svc = srv->createService(BLE_SVC_UUID);
+  BLECharacteristic* ch = svc->createCharacteristic(
+      BLE_CP_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
+  ch->setCallbacks(new BarcodeCb());
+  svc->start();
+  BLEAdvertising* adv = BLEDevice::getAdvertising();
+  adv->addServiceUUID(BLE_SVC_UUID);
+  adv->setScanResponse(true);
+  BLEDevice::startAdvertising();
+  Serial.printf("[gw] BLE peripheral \"%s\" ON — o app do celular escreve o CP\n", BT_NAME);
 }
 #endif
 
@@ -96,8 +136,8 @@ void publishReading(const char* evento, double kN, unsigned long t_ms) {
   doc["t_ms"] = t_ms;
   doc["carga_kN"] = round(kN * 100) / 100.0;
   doc["tensao_MPa"] = round(mpaFromKN(kN) * 100) / 100.0;
-#if BARCODE_BT
-  if (cpValido()) doc["corpo_de_prova"] = cpAtual;   // vincula o CP lido por Bluetooth
+#if BARCODE_BT || BARCODE_BLE
+  if (cpValido()) doc["corpo_de_prova"] = cpAtual;   // vincula o CP (SPP ou BLE)
 #endif
   char buf[256];
   size_t n = serializeJson(doc, buf);
@@ -206,6 +246,9 @@ void setup() {
   SerialBT.begin(BT_NAME, true);   // true = MASTER (o leitor SPP fica como escravo)
   Serial.printf("[gw] Bluetooth SPP master \"%s\" ON\n", BT_NAME);
   conectarLeitor();
+#endif
+#if BARCODE_BLE
+  setupBLE();
 #endif
 
   snprintf(clientId, sizeof(clientId), "gw-%s-%04X", DEVICE_ID, (uint16_t)(ESP.getEfuseMac() & 0xFFFF));
