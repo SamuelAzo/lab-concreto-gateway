@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { startBridge } from './mqtt-bridge.js';
 import { ensaiosRouter } from './routes/ensaios.js';
 import { comandosRouter } from './routes/comandos.js';
+import { topconRouter } from './routes/topcon.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -28,6 +29,7 @@ app.get('/api/stream', (req, res) => {
 
 app.use('/api/ensaios', ensaiosRouter);
 app.use('/api/dispositivos', comandosRouter(bridge));
+app.use('/api', topconRouter);   // /api/cps-pendentes (Topcon, read-only via MCP)
 
 app.use(express.static(join(__dirname, '..', 'public')));
 

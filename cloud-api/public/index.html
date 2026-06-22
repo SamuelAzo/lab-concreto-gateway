@@ -27,7 +27,12 @@
     <table><thead><tr><th>ID</th><th>Início</th><th>Device</th><th>CP</th><th class="num">Pico kN</th><th class="num">MPa</th><th>Status</th></tr></thead>
     <tbody id="rows"></tbody></table>
   </div>
-  <div class="muted">REST: <code>GET /api/ensaios</code> · <code>GET /api/ensaios/:id</code> · <code>POST /api/dispositivos/:id/comando</code></div>
+  <div class="card">
+    <b>📋 CPs a romper hoje <span class="muted">(Topcon)</span></b> <span class="muted" id="cpHoje"></span>
+    <table><thead><tr><th>CP</th><th>Peça</th><th class="num">fck</th><th class="num">Ø</th><th class="num">idade</th><th>Cliente</th></tr></thead>
+    <tbody id="cps"></tbody></table>
+  </div>
+  <div class="muted">REST: <code>GET /api/ensaios</code> · <code>GET /api/cps-pendentes?data=YYYY-MM-DD</code></div>
 </div>
 <script>
 const chart = new Chart(document.getElementById('chart'), {
@@ -50,7 +55,17 @@ async function refresh(){
     document.getElementById('lbl').textContent = `Ensaio #${e.id} · ${e.device} · ${e.status}`;
   }
 }
-refresh();
+async function refreshCps(){
+  try{
+    const j = await (await fetch('/api/cps-pendentes')).json();
+    document.getElementById('cpHoje').textContent = `${j.data} · ${j.total} CP(s)`;
+    document.getElementById('cps').innerHTML = (j.cps||[]).slice(0,50).map(c=>`<tr>
+      <td><b>${c.cp}</b></td><td>${c.peca||''}</td><td class="num">${c.fck||'—'}</td>
+      <td class="num">${c.diametro}</td><td class="num">${c.idade}d</td><td>${c.cli}</td></tr>`).join('')
+      || '<tr><td colspan="6" class="muted">Nenhum CP previsto pra hoje.</td></tr>';
+  }catch(e){ document.getElementById('cps').innerHTML='<tr><td colspan="6" class="muted">Erro ao consultar Topcon: '+e.message+'</td></tr>'; }
+}
+refresh(); refreshCps();
 const es = new EventSource('/api/stream');
 es.onmessage = ()=>refresh();
 setInterval(refresh, 5000);

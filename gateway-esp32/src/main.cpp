@@ -42,6 +42,7 @@
 #include <BLEDevice.h>         // BLE peripheral: recebe o CP do app (camera do celular)
 #include <BLEServer.h>
 #include <BLEUtils.h>
+#include <BLE2902.h>           // descriptor p/ habilitar notify do resultado
 #endif
 
 WiFiClient net;
@@ -78,21 +79,33 @@ void conectarLeitor() {
 #endif
 
 #if BARCODE_BLE
-#define BLE_SVC_UUID  "a1b2c3d4-0001-1000-8000-00805f9b34fb"
-#define BLE_CP_UUID   "a1b2c3d4-0003-1000-8000-00805f9b34fb"   // app ESCREVE o codigo aqui
+#define BLE_SVC_UUID    "a1b2c3d4-0001-1000-8000-00805f9b34fb"
+#define BLE_CP_UUID     "a1b2c3d4-0003-1000-8000-00805f9b34fb"   // app ESCREVE o codigo aqui
+#define BLE_RESULT_UUID "a1b2c3d4-0004-1000-8000-00805f9b34fb"   // ESP32 NOTIFICA o resultado
+BLECharacteristic* resultChar = nullptr;
+bool bleConnected = false;
 class BarcodeCb : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic* c) override {
     String v = String(c->getValue().c_str()); v.trim();
     if (v.length()) { cpAtual = v; cpTs = millis(); Serial.printf("[gw] CP via BLE: %s\n", cpAtual.c_str()); }
   }
 };
+// Sem isto, ao desconectar o ESP32 PARA de anunciar e o app nao reconecta.
+class SrvCb : public BLEServerCallbacks {
+  void onConnect(BLEServer*) override { bleConnected = true; Serial.println("[gw] app BLE conectou"); }
+  void onDisconnect(BLEServer* s) override { bleConnected = false; Serial.println("[gw] app BLE saiu — re-anunciando"); s->startAdvertising(); }
+};
 void setupBLE() {
   BLEDevice::init(BT_NAME);
   BLEServer* srv = BLEDevice::createServer();
+  srv->setCallbacks(new SrvCb());
   BLEService* svc = srv->createService(BLE_SVC_UUID);
   BLECharacteristic* ch = svc->createCharacteristic(
       BLE_CP_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
   ch->setCallbacks(new BarcodeCb());
+  resultChar = svc->createCharacteristic(
+      BLE_RESULT_UUID, BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_READ);
+  resultChar->addDescriptor(new BLE2902());   // habilita o app a assinar o notify
   svc->start();
   BLEAdvertising* adv = BLEDevice::getAdvertising();
   adv->addServiceUUID(BLE_SVC_UUID);
@@ -142,12 +155,26 @@ void publishReading(const char* evento, double kN, unsigned long t_ms) {
   char buf[256];
   size_t n = serializeJson(doc, buf);
   ultimaCargaKN = kN;
-  mqtt.publish(topReadings.c_str(), buf, n);
+  if (mqtt.connected()) mqtt.publish(topReadings.c_str(), buf, n);   // nuvem (se houver)
+#if BARCODE_BLE
+  // NOTIFICA o app por BLE (funciona offline, sem WiFi/nuvem): "evento|kN|MPa|CP"
+  if (bleConnected && resultChar) {
+    char nb[96];
+    // "evento|kN|MPa|CP|synced"  (synced=1 se foi pra nuvem agora)
+    int m = snprintf(nb, sizeof(nb), "%s|%.1f|%.1f|%s|%d", evento, kN, mpaFromKN(kN),
+                     cpValido() ? cpAtual.c_str() : "", mqtt.connected() ? 1 : 0);
+    resultChar->setValue((uint8_t*)nb, m);
+    resultChar->notify();
+  }
+#endif
 }
 void publishRuptura(double kN, bool reenvio) {
-  if (!mqtt.connected()) { salvarPendente(kN); return; }
-  publishReading("ruptura", kN, millis() - t0);
+  publishReading("ruptura", kN, millis() - t0);   // sempre: BLE + MQTT (se conectado)
+  if (!mqtt.connected()) salvarPendente(kN);       // nuvem off -> guarda p/ reenviar depois
   Serial.printf("[gw] RUPTURA %.1f kN = %.1f MPa%s\n", kN, mpaFromKN(kN), reenvio ? " (reenvio)" : "");
+#if (BARCODE_BT || BARCODE_BLE)
+  if (!reenvio) { cpAtual = ""; cpTs = 0; }         // libera o CP atual p/ o proximo
+#endif
 }
 
 // ---------- parser generico: extrai o primeiro numero da linha ----------
@@ -200,23 +227,22 @@ void onCommand(char* topic, byte* payload, unsigned int len) {
 
 void conectarWiFi() {
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.print("[gw] WiFi");
-  while (WiFi.status() != WL_CONNECTED) { delay(400); Serial.print("."); }
-  Serial.printf(" OK  IP=%s\n", WiFi.localIP().toString().c_str());
+  WiFi.setAutoReconnect(true);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);     // NAO bloqueia: conecta em background
+  Serial.println("[gw] WiFi tentando em background (gateway funciona offline)");
 }
 
-void conectarMQTT() {
-  while (!mqtt.connected()) {
-    Serial.print("[gw] MQTT...");
-    if (mqtt.connect(clientId)) {
-      Serial.println(" conectado");
-      mqtt.subscribe(topCommands.c_str());
-      enviarPendente();
-    } else {
-      Serial.printf(" falhou (rc=%d), retry 2s\n", mqtt.state());
-      delay(2000);
-    }
+// Nao-bloqueante: mantem a nuvem SE houver WiFi; se nao, segue offline (BLE).
+void manterNuvem() {
+  if (mqtt.connected()) { mqtt.loop(); return; }
+  if (WiFi.status() != WL_CONNECTED) return;     // sem WiFi -> offline, sem travar
+  static unsigned long ult = 0;
+  if (millis() - ult < 3000) return;             // throttle das tentativas
+  ult = millis();
+  if (mqtt.connect(clientId)) {
+    Serial.printf("[gw] MQTT conectado (IP %s)\n", WiFi.localIP().toString().c_str());
+    mqtt.subscribe(topCommands.c_str());
+    enviarPendente();
   }
 }
 
@@ -256,18 +282,15 @@ void setup() {
   topReadings = base + "/readings/" + DEVICE_ID;
   topCommands = base + "/commands/" + DEVICE_ID;
 
-  conectarWiFi();
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setBufferSize(512);
   mqtt.setCallback(onCommand);
-  conectarMQTT();
-  Serial.printf("[gw] pronto. lendo prensa @ %d baud, publicando em %s\n", PRENSA_BAUD, topReadings.c_str());
+  conectarWiFi();   // nao-bloqueante
+  Serial.printf("[gw] pronto. lendo prensa @ %d baud (funciona offline; nuvem se houver WiFi)\n", PRENSA_BAUD);
 }
 
 void loop() {
-  if (WiFi.status() != WL_CONNECTED) conectarWiFi();
-  if (!mqtt.connected()) conectarMQTT();
-  mqtt.loop();
+  manterNuvem();   // nao-bloqueante: cuida do MQTT se houver WiFi (offline segue normal)
 
 #if TEST_MODE
   // modo bancada: dispara um ensaio simulado periodicamente (sem prensa)

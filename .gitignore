@@ -25,3 +25,10 @@ __pycache__/
 
 # config local de preview
 .claude/
+
+# segredos
+.env
+**/.env
+
+# PlatformIO build (qualquer firmware)
+**/.pio/
