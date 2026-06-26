@@ -1,7 +1,7 @@
 name: lab_concreto_cp
 description: App que le o codigo de barras do corpo de prova (camera) e envia ao gateway ESP32 via BLE.
 publish_to: "none"
-version: 0.1.0+7
+version: 0.1.0+9
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -11,6 +11,8 @@ dependencies:
     sdk: flutter
   mobile_scanner: ^7.2.0      # camera 1D/2D (iOS + Android)
   flutter_blue_plus: ^1.32.12 # BLE central (conecta no ESP32)
+  shared_preferences: ^2.2.3  # persiste a lista de rompidos no celular
+  http: ^1.2.0                # POST das rupturas pra cloud-api (grava no Topcon)
 
 dev_dependencies:
   flutter_lints: ^4.0.0
