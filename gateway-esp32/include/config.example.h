@@ -18,13 +18,26 @@
 #define PRENSA_RX_PIN 16                     // GPIO16 <- R1OUT do MAX3232
 #define PRENSA_TX_PIN 17                     // GPIO17 -> T1IN do MAX3232
 // SERIAL_8N1 e o padrao; ajuste se a prensa usar paridade/stop diferente.
+//
+// PRENSAS JA DECODIFICADAS (engenharia reversa em campo):
+//  - DIGI-TRON: 9600 8N1, quadro "X######." + CR, valor em kgf -> PARSER_ESCALA 0.00980665
+//  - DIGITEC : 9600 8N1, STREAMING continuo enquanto carrega. Quadro:
+//                "$ALL  <carga>   <deslocamento>  <flag>" + CR
+//              O 1o numero e a CARGA JA EM kN (ruptura real medida: 322.4 kN, depois despenca).
+//              O 2o numero (deslocamento) sobe sempre e NAO cai -> ignorar.
+//              => use PARSER_ESCALA 1.0 (o parser generico pega o 1o numero = a carga).
+//  ATENCAO (DIGITEC + ESP32): a prensa so transmite quando "ve" o PC pronto (handshake).
+//    O FTDI/PC liga as linhas de controle sozinho; o MAX3232 de 3 fios NAO. Para o ESP32
+//    receber o stream, faca o LOOPBACK de handshake no DB9 da prensa: pino 7<->8 (RTS/CTS)
+//    e pino 4<->6 (DTR/DSR). Sem isso a linha fica em idle e nao chega dado.
 
 // ---------- Parser generico ----------
 // Estrategia simples e robusta: extrai o PRIMEIRO numero de cada linha como carga bruta
 // e multiplica por PARSER_ESCALA para obter kN. Ajuste a escala conforme a unidade da
-// prensa (ex.: se a prensa manda kgf, 1 kgf = 0.00980665 kN; se manda N, 0.001).
-#define PARSER_ESCALA   0.001                // exemplo: prensa em Newtons -> kN
-#define DIAM_MM         100.0                // corpo de prova cilindrico 10x20 cm
+// prensa (ex.: se a prensa manda kgf, 1 kgf = 0.00980665 kN; se manda N, 0.001;
+// DIGITEC ja manda kN -> 1.0).
+#define PARSER_ESCALA   1.0                  // DIGITEC: 1o campo "$ALL" ja vem em kN
+#define DIAM_MM         100.0                // corpo de prova cilindrico 10x20 cm (ajuste p/ 150 se 15x30)
 
 // Deteccao de ruptura: apos passar de RUPTURA_MIN_KN, se a carga cair abaixo de
 // (pico * RUPTURA_QUEDA), considera-se rompido e publica o pico.
